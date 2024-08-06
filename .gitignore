@@ -3,6 +3,10 @@ env/
 __pycache__/
 .vscode/
 *.log
+*.env
 
 # Ignore specific files
 quote.csv
+font-info.txt
+# Images created whilst testing
+*.jpg 
