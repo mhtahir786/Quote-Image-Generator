@@ -8,5 +8,6 @@ __pycache__/
 # Ignore specific files
 quote.csv
 font-info.txt
+interface.py
 # Images created whilst testing
 *.jpg 

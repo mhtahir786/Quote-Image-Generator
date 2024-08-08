@@ -9,34 +9,34 @@ import logging
 import textwrap
 import os
 
-
 # - - Setup for functions
 # Log's configuration, to track and debug in development
 logging.basicConfig(
     filename='test.log',
     filemode='a',  # append to log file
-    level=logging.DEBUG,  # set logging level (debugging, info, warning, error, critical)
+    level=logging.WARNING,  # set logging level (debugging, info, warning, error, critical)
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s' # time, name, level, message
 )
 
 # Load environment variables from file path specified
 load_dotenv(dotenv_path='store.env')
 
+
 # - - All functions
-# Uses a proxy to redirect data from site request
+# Uses a proxy to redirect data from site request - OPTIONABLE (change in func:get_all_quote_data)
 def get_with_proxy(url):
-    # Proxies attained from 'https://free-proxy-list.net/'
+    # Proxies attained from 'https://firee-proxy-list.net/'
     # Remember to update proxies (ensure they work)
     proxyList = [
         'http://128.199.136.56:3128',    # Singapore
         'http://172.183.241.1:8090',     # USA
         'http://189.240.60.166:9090',    # Mexico
-        'http://103.152.232.162:8199',     # Columbia
+        'http://103.152.232.162:8199',   # Columbia
         'http://223.135.156.183:8080'    # Japan
         ]
     
-    # Loop through all proxies till one works
-    for i in range(len(proxyList)):
+    # Randomly select a proxy until one works
+    for i in range(len(proxyList) * 2):
         proxy = random.choice(proxyList)
 
         try:  # attempt to use the proxy's available
@@ -45,14 +45,15 @@ def get_with_proxy(url):
                 logging.debug(f"Proxy used - {proxy}")
                 return result
             else:
-                print(f"This proxy failed - {proxy}, status code: {result.status_code}")
+                logging.debug(f"This proxy failed - {proxy}, status code: {result.status_code}")
         except requests.exceptions.RequestException as error:  # handle proxy errors and continue
-            print(f"Proxy {proxy} failed. Error: {error}")
+            print(f"CRITICAL ERROR - Proxy {proxy} failed. Check the proxy list immediately, Error: {error}")
+            logging.critical(f"Proxy {proxy} failed. Check the proxy list immediately, Error: {error}")
     
     return None
 
 
-# Return all quote text within a set of quotes as a list
+# Return a list of all quote text's within a set of quotes
 def get_quote_text(doc):
     allQuotes = []
     divQuotes = doc.find_all('div', class_='quote')
@@ -64,7 +65,7 @@ def get_quote_text(doc):
 
     return allQuotes
 
-# Return all tags associated within a set of quotes as a list
+# Return a list of all tags associated within a set of quotes
 def get_quote_tags(doc):
     allTags = []
     divQuotes = doc.find_all('div', class_='quote')
@@ -76,29 +77,43 @@ def get_quote_tags(doc):
 
     return allTags
 
+# Return a list of all author names within a set of quotes
+def get_quote_author(doc):
+    allAuthors = []
+    divQuotes = doc.find_all('div', class_='quote')
 
-# Returns a dictionary format of data acquired from lists
-def list_to_dict(quoteList, tagList):
-    # Ensure lists are same length
-    if (len(quoteList) != len(tagList)):
+    # Find all quote author names within quote span
+    for content in divQuotes:
+        spanTag = content.find('span', class_=None)
+        author = spanTag.find('small', class_="author").text
+        allAuthors.append(author)
+
+    return allAuthors
+
+
+# Returns a dictonary format, of data acquired from list parameters
+def list_to_dict(quoteList, tagList, authorList):
+    # Ensure lists are the same length
+    if (len(quoteList) != len(tagList) != len(authorList)):
+        logging.warning("ERROR - Lists do not have same length to be converted into a dictionary.")
         raise ValueError("List to Dict Function - different length of lists")
 
-    newDict = {}
-
     # Initialise column names
-    columns = ['Key', 'Quote', 'Tag']
+    columns = ['Key', 'Quote', 'Tag', 'Author']
+    newDict = {}
 
     # Using i like a key to map quote information in a dictionary
     for i in range(len(quoteList)):
         newDict[i] = {
             columns[0]: i,               # Key
             columns[1]: quoteList[i],    # Quote Text
-            columns[2]: tagList[i]       # Tag
+            columns[2]: tagList[i],      # Tag
+            columns[3]: authorList[i]    # Author Name
         }
     
     return newDict
 
-# Return specific quote data from main site, traversing through all pages
+# Return specific quote data from the quote site, traversing through all pages
 # mainURL = url without changes, typeFunc = function name for type i.e. get_quote_text
 def get_specific_quote_data(mainURL, typeFunc):
     allData = []
@@ -109,12 +124,14 @@ def get_specific_quote_data(mainURL, typeFunc):
 
         # Setup new page to get quote div's from
         newURL = f"{mainURL}/page/{pageNum}"  # update url to access
-        result = requests.get(newURL)
+        result = requests.get(newURL)                                 # Option - NO Proxy
+        #result = get_with_proxy(mainURL)                             # Option - Proxy Enabled
         doc = BeautifulSoup(result.text, "html.parser")
 
         if result.status_code != 200:  # 200 illustrates success
             break
         data = typeFunc(doc)
+        logging.debug(f"Successfully acquired page {pageNum} data for specific function {typeFunc}.")
 
         # Break loop when list is empty (couldn't get more quotes)
         if not data:
@@ -126,18 +143,20 @@ def get_specific_quote_data(mainURL, typeFunc):
     
     return allData
 
-# Return a dictionary containing all required quote content from main site's pages
+# Return a dictionary containing all required quote content from the quote site pages
 def get_all_quote_data(mainURL):
     allQuotes = []
     allTags = []
+    allAuthors = []
     pageNum = 1
 
-    # Get all quotes, of all types - whilst pages contain them
+    # Get all quotes data, of pre-determined types - whilst pages contain them
     while True:
 
         # Setup new page to get quote div's from
         newURL = f"{mainURL}/page/{pageNum}"  # update url to access
-        result = requests.get(newURL)
+        result = requests.get(newURL)                                 # Option - NO Proxy
+        #result = get_with_proxy(mainURL)                             # Option - Proxy Enabled
         doc = BeautifulSoup(result.text, "html.parser")
 
         if result.status_code != 200:  # 200 illustrates success
@@ -146,24 +165,30 @@ def get_all_quote_data(mainURL):
         # Get required data for this page and store in list
         dataQuotes = get_quote_text(doc)
         dataTags = get_quote_tags(doc)
+        dataAuthors = get_quote_author(doc)
+        logging.debug(f"Successfully acquired page {pageNum} data with quotes, tags and authors.")
 
         # Break loop when any list is empty (couldn't get more quotes)
-        if (not dataQuotes) or (not dataTags):
+        if (not dataQuotes) or (not dataTags) or (not dataAuthors):
             break
         
         # Add quotes to allData list
         allQuotes.extend(dataQuotes)
         allTags.extend(dataTags)
+        allAuthors.extend(dataAuthors)
+        logging.debug(f"Placed the data for page {pageNum} into their lists.")
         pageNum += 1
     
     # Convert lists into dict format to return
-    allData = list_to_dict(allQuotes, allTags)
+    allData = list_to_dict(allQuotes, allTags, allAuthors)
+    logging.debug("Lists successfully converted into a dictionary to be returned!")
     return allData
 
 # Returns a random row selected within dictionary presented
 def select_random_row(quoteDict):
     keys = list(quoteDict.keys())  # convert dictionary keys to a list
-    randomKey = random.choice(keys) # get a random key
+    randomKey = random.choice(keys)  # get a random key
+    logging.debug(f"Random key found {randomKey}")
     return quoteDict[randomKey]  # return row associated with that key
 
 
@@ -172,15 +197,15 @@ def generate_image_url(tags):
     # Grab API key from .env file, report issue when not found
     apiKey = os.getenv('UNSPLASH_ACCESS_KEY')
     if not apiKey:
-        logging.debug("Unable to get UNSPLASH_ACCESS_KEY from file")
-        raise ValueError("Unable to retrieve UNSPLASH_ACCESS_KEY")
+        logging.warning("ERROR - Unable to get UNSPLASH_ACCESS_KEY from file")
+        raise ValueError("ERROR - Unable to retrieve UNSPLASH_ACCESS_KEY")
     
     # Ensure tag parameter contains content
     if tags:
         logging.debug("Parameters contain content in function; generate_image_url")
     else:
-        logging.debug("Error - No content in parameters for function; generate_image_url")
-        raise ValueError("Error - No content in parameters for function; generate_image_url")
+        logging.warning("ERROR - No content in parameters for function; generate_image_url")
+        raise ValueError("ERROR - No content in parameters for function; generate_image_url")
     
     # Initiate a get request using tags given as parameter
     apiURL = "https://api.unsplash.com/photos/random"
@@ -194,7 +219,7 @@ def generate_image_url(tags):
     result = requests.get(apiURL, headers=headers, params=params)
 
     # Check process was successful and return image url
-    imageURL = "No image found"  # default issue
+    imageURL = "No image found"  # default with nothing
     if result.status_code == 200:
         data = result.json()
         # Ensure data was returned and is not empty
@@ -202,9 +227,9 @@ def generate_image_url(tags):
             imageURL = data[0]['urls']['regular']  # check API documentation for parsing details
             logging.debug(f"Successfully obtained image url {data[0]['urls']['regular']}")
         else:
-            logging.debug("Data returned from API was empty.")
+            logging.info("Data returned from API was empty.")
     else:
-        logging.debug(f"Error with API request statsus code {result.status_code} - {result.text}")
+        logging.warning(f"ERROR - with API request status code {result.status_code} - {result.text}")
     
     return imageURL
 
@@ -218,17 +243,17 @@ def download_image_from_url(url):
         logging.debug("Successfully downlaoded image in function; download_image_from_url")
         return image
     else:
-        logging.debug(f"Couldn't downlaod image in function; download_image_from_url), Status code - {result.status_code}")
-        raise Exception(f"Couldn't downlaod image in function; download_image_from_url), Status code - {result.status_code}")
+        logging.warning(f"ERROR - Couldn't downlaod image in function; download_image_from_url), Status code - {result.status_code}")
+        raise Exception(f"ERROR - Couldn't downlaod image in function; download_image_from_url), Status code - {result.status_code}")
     
 
-# Returns font size adjusted to fit a bounding box for the quote
+# Returns an image with quote text on top after font size is adjusted to fit a bounding box
 def draw_text_on_image(quoteText, image):
     # Initialise font size & type ideally
     FONT_NAME = "fonts/OraUrus-BLjPx.ttf"
     FONT_SIZE = 120  # also max font size
     FONT_COLOUR = (255,255,255)  # white
-    BOX_WIDTH = 900  # using static pixels over percentage sizes makes text appear different
+    BOX_WIDTH = 900  # using static pixels over percentage sizes makes text appear different...
     BOX_HEIGHT = 600 # .. size with different image dimensions, this is an artistic choice
 
     # Setup pillow library to draw on to image
@@ -261,10 +286,10 @@ def draw_text_on_image(quoteText, image):
 
     return image
 
-# Returns an image with quote text inserted on it
-def get_image_with_text(quoteText, quoteTags):    
-    # Obtain an image from API & download into memory for use
-    imageURL = generate_image_url(quoteTags) 
+# Returns an image with quote text inserted on it centrally
+def get_image_with_text(quoteText, quoteTags):
+    # Obtain an image from API which somewhat relates to image tags
+    imageURL = generate_image_url(quoteTags)
     
     # Download image temporarily into memory to draw on
     image = download_image_from_url(imageURL)
@@ -272,4 +297,4 @@ def get_image_with_text(quoteText, quoteTags):
     # Draw text on to image using dynamic sizing and center placement onto image
     image = draw_text_on_image(quoteText, image)   
 
-    return image
+    return image, imageURL
